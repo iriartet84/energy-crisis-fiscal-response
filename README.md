@@ -1,122 +1,94 @@
 # Energy Shocks and Fiscal Policy
 
-Replication package for the Master's thesis *Energy Shocks and Fiscal Policy*.
+Code for my Master's thesis, which asks whether institutional quality shapes how governments' fiscal positions respond to exogenous oil supply shocks.
 
-**Research question.** Does institutional quality shape the fiscal response to exogenous oil supply shocks?
+The analysis uses a panel of 30 countries over 1975–2024 and combines several ingredients:
 
-The package reproduces the thesis results from two supplied inputs: the finished country-year panel (`full-panel-data.db`) and the completed estimation and bootstrap outputs (`bootstrapped-data/`). It does not rebuild the panel from the raw IMF, World Bank, V-Dem and oil-shock downloads.
+- the oil supply news shock of Känzig
+- fiscal data from the IMF and World Bank
+- institutional indicators from V-Dem
 
-## Methodology
+The main tool is a set of state-dependent local projections, where the response of the primary balance to the shock depends on a country's institutional quality.
 
-- **Shock.** Känzig's oil supply news shock, summed from monthly to annual frequency. It is common to all countries.
-- **Outcome.** The cumulative change in the primary balance (% of GDP), `pb(t+h) - pb(t)`, for h = 0, ..., 10. The fiscal decomposition also uses revenue, tax revenue, expenditure and debt (% of GDP), plus real-level versions: logs, and the inverse hyperbolic sine of the real primary balance, `arcsinh(pb / 100 * real_gdp)`.
-- **Institutional quality.** V-Dem control of corruption (inverted `v2x_corr`), rule of law, property rights, transparent laws, bureaucratic quality and electoral democracy. Each is z-scored, then averaged, and the average is standardised again (`inst`). The binary models split on the country mean of `inst` over 1974–2024 (`inst_mean`). The smooth-transition models use the lagged index (`inst_lag1`).
-- **State-dependent local projections.** These use country fixed effects (within transformation) and no time effects, since the shock is common to all countries. The horizon of interest is h = 4.
-  - *Smooth transition:* `dpb(h) = a_i + bF(h) shock F(inst_lag1) + b1mF(h) shock (1 - F) + controls`, with `F = 1 / (1 + exp(-lambda (inst_lag1 - c)))`. The centre c and speed lambda are chosen by grid search to minimise the SSR summed over h = 0–4. The grid has 15 centres over the range of `inst_lag1` and lambda in `logspace(-0.5, 2, 12)`.
-  - *Binary threshold:* the same equation with `1(inst_mean <= gamma)`, where gamma comes from a 40-point grid between the 10th and 90th percentiles of `inst_mean`.
-- **Controls.**
-  - *Baseline:* two lags of `gdp_growth` and `cpi_infl`.
-  - *Extended:* adds one lag of geopolitical risk, energy imports, world GDP and the oil share.
-  - *Further robustness sets:* a linear trend, or lags of the primary balance and the shock.
-- **Inference.** Country block bootstrap: draw b resamples countries with replacement using `np.random.default_rng(42 + b)` and re-runs the grid search. Bands are 68/90/95% percentile intervals.
+## Files
 
-## Data
-
-**Supplied inputs** (place them in `data/`):
-
-| File | Content |
+| File | What it does |
 |---|---|
-| `data/full-panel-data.db` | SQLite table `panel`: 33 countries, 1970–2026, 1,805 rows. This is the output of the upstream data-construction stage. |
-| `data/bootstrapped-data/*.pkl` | Completed point estimates and bootstrap draws (joblib pickles), described below |
-| `data/bootstrapped-data/panel_annual.parquet` | Processed copy of the panel. It is rebuilt from the database and used only as a consistency check. |
+| `data_prep.py` | Loads the panel from `full-panel-data.db` and builds the estimation variables. It also produces the descriptive tables and the institutional-quality and oil-shock figures. |
+| `lp_analysis.py` | Estimates the local projections and loads the bootstrap results. It writes all regression tables and figures. |
+| `full-panel-data.db` | Finished country-year panel (SQLite, table `panel`) |
+| `bootstrapped-data/` | Saved point estimates and bootstrap draws (joblib pickles) |
+| `outputs/` | Tables (CSV) and figures (PNG) produced by the two scripts |
 
-**Upstream sources (not included).**
+The panel in `full-panel-data.db` was built from the raw sources, which are not included in this repository:
 
-- IMF: primary balance, expenditure, general government revenue, gross debt.
-- World Bank WDI: GDP, CPI, tax revenue, GDP deflator, net energy imports, Brent price.
+- IMF: primary balance, expenditure, revenue, debt.
+- World Bank WDI: GDP, CPI, tax revenue, deflator, energy imports.
+- World Bank commodity prices: Brent.
 - V-Dem: institutional indicators.
 - Känzig: oil supply news shock.
 - Caldara and Iacoviello: geopolitical risk.
-- Energy-mix data: oil share of primary energy.
 
-The raw-data stage is documented in the original `data_prep.py`, but it cannot be run here because the raw files are not supplied.
+## Method
 
-**Sample.**
+**Institutional quality.** Six V-Dem measures are z-scored and averaged:
 
-- The panel covers 33 countries.
-- 31 of them have the institutional index. Mexico and Singapore have no V-Dem or fiscal data in the panel.
-- 30 countries enter the regressions (Egypt has no primary balance data), over 1975–2024.
-- Sample restrictions inherited from the upstream stage: Brazil is dropped after 2006, the United States after 2019, and Argentina and Hong Kong are excluded.
+- control of corruption
+- rule of law
+- property rights
+- transparent laws
+- bureaucratic quality
+- electoral democracy
 
-## Supplied estimation files
+The average is then standardised again to give the index `inst`.
 
-| File(s) | Specification | Used for |
-|---|---|---|
-| `uni_smooth_base_corrected.pkl` | Smooth transition, baseline controls, final grid (100 draws) | **Main result** |
-| `baseline_binary_long_parallel.pkl` | Binary threshold, baseline controls (1,000 draws) | Baseline |
-| `uni_smooth_ext_corrected.pkl` | Smooth transition, extended controls | Robustness |
-| `robustness_extended_parallel.pkl`, `robustness_extended_v2_parallel.pkl` | Binary threshold, extended controls (40- and 50-point grids) | Robustness |
-| `robustness_trend_parallel.pkl` | Binary threshold, extended controls and a linear trend | Robustness |
-| `baseline_binary_pb_shock_controls.pkl`, `uni_smooth_pb_shock_controls.pkl` | Adding lags of the primary balance and the shock | Robustness |
-| `exp_regime_parallel.pkl`, `exp_common_regime_parallel.pkl` | Energy-import exposure (regime-specific or common slope, 1 SD shock) at the baseline gamma | Robustness |
-| `decomp_<outcome>_<base/ext>_parallel.pkl` | Binary LP at the baseline gamma for 10 fiscal outcomes | Decomposition |
-| `st_boot_<sub-index>_<outcome>_parallel.pkl` | Smooth transition on each V-Dem sub-index (contemporaneous) for pb, expenditure, tax revenue and debt; evaluated at the 10th/90th percentiles | Sub-index analysis |
-| `uni_smooth_base_parallel.pkl`, `uni_smooth_ext_parallel.pkl` | Earlier smooth-transition grid (optimum on the grid boundary c = -1) | Superseded, checked only |
-| `baseline_binary_long.pkl` | Earlier sequential run on an older panel vintage | Not used |
+**Outcome.** The cumulative change in the primary balance (% of GDP) between t and t+h, for h = 0, ..., 10.
 
-The mapping is defined in `src/specifications.py`.
+**Smooth-transition LP (main specification).** The shock is interacted with a logistic function of lagged institutions:
 
-## Structure
+`F = 1 / (1 + exp(-lambda * (inst_lag1 - c)))`
 
-```
-├── README.md
-├── requirements.txt
-├── run_replication.py         # entry point
-├── data/                      # supplied inputs (see above)
-├── src/
-│   ├── config.py              # paths, control sets, grids, seed
-│   ├── data.py                # load the panel, construct estimation variables, sample
-│   ├── institutions.py        # composite index, country means, correlations
-│   ├── local_projections.py   # LP estimation, transition function, grid searches
-│   ├── specifications.py      # each supplied file and the model behind it
-│   ├── bootstrap_results.py   # load supplied results, bands, tests
-│   ├── bootstrap.py           # optional re-run of the country block bootstrap
-│   ├── tables.py
-│   └── figures.py
-└── outputs/
-    ├── tables/
-    └── figures/
-```
+- The centre c and speed lambda are chosen by grid search over the SSR summed over h = 0–4.
+- The regression includes country fixed effects and two lags of GDP and CPI inflation.
 
-## Running
+**Binary threshold LP.** The same regression, split at a threshold on each country's mean institutional quality. The threshold is found by grid search.
+
+**Robustness.** The same models re-estimated with:
+
+- an extended control set (geopolitical risk, energy imports, world GDP, oil share)
+- a linear trend
+- lags of the primary balance and the shock
+- energy-import exposure interactions
+
+**Decomposition.** The binary LP for revenue, tax revenue, expenditure and debt, both in % of GDP and in real terms (logs, and the inverse hyperbolic sine for the real primary balance).
+
+**Sub-indices.** The smooth-transition LP run separately on each V-Dem component.
+
+**Inference.** Country block bootstrap: countries are resampled with replacement using seed 42 + b, and the grid search is repeated in every draw.
+
+## Running it
 
 ```bash
 pip install -r requirements.txt
-
-python run_replication.py                          # everything, about 3 minutes
-python run_replication.py --section data           # sample, descriptives, institutions
-python run_replication.py --section baseline       # main smooth-transition and binary results
-python run_replication.py --section robustness
-python run_replication.py --section decomposition
+python data_prep.py
+python lp_analysis.py
 ```
 
-The default run re-estimates every point estimate from the panel (including all grid searches) and takes the bootstrap draws from the supplied files. Re-running a bootstrap is optional and slow. The main smooth-transition specification needs roughly 8 CPU-seconds per draw.
+`lp_analysis.py` re-estimates every point estimate from the panel, including all grid searches, and takes about 3–4 minutes. The bootstrap draws are loaded from `bootstrapped-data/` because rerunning them takes hours.
 
-```bash
-python run_replication.py --section bootstrap --spec st_base --n-boot 100
-```
+To rerun the bootstraps, set `RERUN_BOOTSTRAP = True` at the top of `lp_analysis.py`. New draws go to `outputs/bootstrap_rerun/` and the saved files are left untouched. The sub-index bootstraps are the exception: they always use the saved draws.
 
-This writes to `outputs/bootstrap_rerun/` and compares the new draws with the supplied ones.
+`outputs/tables/replication_check.csv` compares the re-estimated point estimates with the saved ones. All differences are below 1e-3, and most are around 1e-5. The small gaps come from some saved files being produced on a slightly earlier version of the panel.
 
-## Outputs
+## Main result
 
-**Tables** (`outputs/tables/`, CSV):
+- **Transition.** c = −0.943 and lambda = 59.3, so the switch between states is very sharp: F moves from 0.5 to 0.9 within 0.037 units of the index.
+- **Response at h = 4.**
+    - Low-institution state: the primary balance falls by 0.185 pp of GDP after a one-unit shock.
+    - High-institution state: it rises by 0.157 pp.
 
-- `main_smooth_transition_parameters.csv`, `main_smooth_transition_irfs.csv`: c, lambda, transition width, and the regime IRFs with 68/90/95% bands.
-- `binary_threshold_irfs.csv`, `binary_threshold_joint_test.csv`
-- `robustness_summary_h4.csv`, `subindex_smooth_transition.csv`, `decomposition_h4.csv`
-- `sample_by_country.csv`, `descriptive_statistics.csv`, `institutional_index_by_country.csv`, `institutional_correlations.csv`, `adf_unit_root.csv`
-- `replication_check.csv`: recomputed versus supplied estimates for every file.
-- `data_consistency_check.csv`: the rebuilt panel versus `panel_annual.parquet`.
+## Notes
 
-**Figures** (`outputs/figures/`): main smooth-transition IRFs, transition function, response curves at h = 4 and 8, binary IRFs, robustness comparisons, exposure interactions, decomposition, sub-index IRFs, institutional index and oil shock.
+- The `gdp_growth` and `world_gdp_growth` columns in the panel contain GDP levels (current US$), not growth rates, because of the World Bank series that was downloaded. They are used as stored.
+- Mexico and Singapore have no V-Dem or fiscal data in the panel, and Egypt has no primary balance data. The regressions therefore use 30 of the 33 countries.
+- `panel_annual.parquet` is a processed copy of the panel. `data_prep.py` rebuilds it from the database and checks that the two match.
